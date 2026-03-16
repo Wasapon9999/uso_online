@@ -22,11 +22,10 @@ def init_fonts():
 
 F_REG, F_BOLD = init_fonts()
 
-# --- 2. ฟังก์ชันสร้าง PDF ให้เหมือนต้นฉบับเป๊ะ ---
+# --- 2. ฟังก์ชันสร้าง PDF ---
 def generate_exact_pdf(df, center_name, uploaded_imgs):
     buffer = BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=50, leftMargin=50, topMargin=50, bottomMargin=50)
-    styles = getSampleStyleSheet()
     
     st_title = ParagraphStyle('T', fontName=F_BOLD, fontSize=16, leading=20)
     st_normal = ParagraphStyle('N', fontName=F_REG, fontSize=14, leading=16)
@@ -55,19 +54,16 @@ def generate_exact_pdf(df, center_name, uploaded_imgs):
     story.append(t)
     story.append(PageBreak())
 
-    # หน้า 2 เป็นต้นไป: รูปภาพ (2 รูปต่อหน้า)
+    # หน้า 2 เป็นต้นไป: รูปภาพ
     for i, row in df.iterrows():
         story.append(Paragraph(f"วันที่ : {row['date']}", st_bold))
         story.append(Paragraph(f"ชื่อ : {row['name']}  ตำแหน่ง : {row['status']}", st_normal))
         story.append(Spacer(1, 15))
 
-        # ตรวจสอบรูปภาพ (รูปใหม่จาก Upload หรือ รูปเดิมจาก Folder)
         for label, col_name, upload_key in [("เวลาเข้า (เช้า)", "img_in1", f"in_{i}"), ("เวลาออก (เย็น)", "img_out1", f"out_{i}")]:
             img_to_use = None
-            # 1. เช็คว่ามีการอัปโหลดใหม่ไหม
             if upload_key in uploaded_imgs and uploaded_imgs[upload_key] is not None:
                 img_to_use = uploaded_imgs[upload_key]
-            # 2. ถ้าไม่มี ให้อ่านจากโฟลเดอร์ photos/ ตามชื่อใน CSV
             else:
                 photo_path = f"photos/{row[col_name]}"
                 if os.path.exists(photo_path):
@@ -98,32 +94,40 @@ centers = st.session_state.df['file_name'].unique()
 target = st.sidebar.selectbox("เลือกศูนย์", centers)
 current_df = st.session_state.df[st.session_state.df['file_name'] == target].copy()
 
-# ส่วนการตรวจและอัปโหลด
 st.subheader(f"📍 ศูนย์: {target}")
 edited_df = st.data_editor(current_df, use_container_width=True)
 
 uploaded_files = {}
 st.write("---")
-st.subheader("🖼️ ตรวจสอบและแก้ไขรูปภาพ")
+st.subheader("🖼️ ตรวจสอบและแก้ไขรูปภาพ (แสดงตัวอย่างทันที)")
 
-cols = st.columns(3)
+# แสดงรายการตามวันที่
 for idx, row in edited_df.iterrows():
     with st.expander(f"📅 วันที่ {row['date']} - {row['name']}"):
         c1, c2 = st.columns(2)
         
-        # แสดงรูปเดิม (ถ้ามี)
+        # ลูปจัดการรูปเช้า (in) และรูปเย็น (out)
         for i, (col_img, label, key) in enumerate([("img_in1", "รูปเช้า", "in"), ("img_out1", "รูปเย็น", "out")]):
             target_col = c1 if i == 0 else c2
-            photo_path = f"photos/{row[col_img]}"
+            upload_key = f"{key}_{idx}"
             
-            if os.path.exists(photo_path):
-                target_col.image(photo_path, caption=f"รูปเดิม: {label}", width=200)
+            # 1. สร้างช่อง Upload ก่อน
+            new_file = target_col.file_uploader(f"เปลี่ยน{label}", type=['jpg','png'], key=upload_key)
+            uploaded_files[upload_key] = new_file
+            
+            # 2. ส่วนแสดงผล Preview (Logic: ถ้ามีไฟล์ใหม่โชว์ไฟล์ใหม่ ถ้าไม่มีโชว์ไฟล์เดิม)
+            if new_file is not None:
+                target_col.image(new_file, caption=f"✨ รูปใหม่ที่คุณอัปโหลด ({label})", use_container_width=True)
+                target_col.success(f"ตรวจพบรูปใหม่สำหรับ{label} เรียบร้อย!")
             else:
-                target_col.warning(f"ไม่พบรูปเดิม: {label}")
-            
-            # ช่องอัปโหลดรูปใหม่เพื่อแทนที่
-            uploaded_files[f"{key}_{idx}"] = target_col.file_uploader(f"อัปโหลด{label}ใหม่", type=['jpg','png'], key=f"{key}_{idx}")
+                photo_path = f"photos/{row[col_img]}"
+                if os.path.exists(photo_path):
+                    target_col.image(photo_path, caption=f"🖼️ รูปเดิมในระบบ: {label}", use_container_width=True)
+                else:
+                    target_col.warning(f"⚠️ ไม่พบรูปเดิมในโฟลเดอร์ photos/")
 
-if st.button("🖨️ Export PDF (Final)", use_container_width=True):
-    pdf_out = generate_exact_pdf(edited_df, target, uploaded_files)
-    st.download_button(f"📥 ดาวน์โหลด PDF: {target}", pdf_out, f"{target}.pdf", "application/pdf")
+st.divider()
+if st.button("🖨️ Export PDF (Final Report)", use_container_width=True):
+    with st.spinner("กำลังจัดเตรียมไฟล์ PDF..."):
+        pdf_out = generate_exact_pdf(edited_df, target, uploaded_files)
+        st.download_button(f"📥 คลิกเพื่อดาวน์โหลด PDF: {target}", pdf_out, f"{target}.pdf", "application/pdf")
