@@ -14,8 +14,8 @@ from PIL import Image
 # --- 1. การตั้งค่า Font แบบเข้มงวด ---
 def init_fonts():
     # ตรวจสอบว่าไฟล์ฟอนต์มีอยู่ในระบบจริงไหม
-    reg_font_path = 'thsarabunnew.ttf'
-    bold_font_path = 'thsarabunnew_bold.ttf'
+    reg_font_path = 'THSarabunNew.ttf'
+    bold_font_path = 'THSarabunNew_bold.ttf'
     
     if os.path.exists(reg_font_path) and os.path.exists(bold_font_path):
         try:
