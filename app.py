@@ -15,7 +15,7 @@ from PIL import Image
 def init_fonts():
     try:
         pdfmetrics.registerFont(TTFont('ThaiFont', 'thsarabunnew.ttf'))
-        pdfmetrics.registerFont(TTFont('ThaiFontBold', 'thsarabunnew_bold.ttf'))
+        pdfmetrics.registerFont(TTFont('ThaiFontBold', 'THSarabunNew Bold.ttf'))
         return "ThaiFont", "ThaiFontBold"
     except:
         return "Helvetica", "Helvetica-Bold"
