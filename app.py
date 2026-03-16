@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import os
 from io import BytesIO
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
@@ -10,126 +11,119 @@ from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from PIL import Image
 
-# --- 1. ตั้งค่าฟอนต์ ---
+# --- 1. การตั้งค่า Font ---
 def init_fonts():
     try:
-        pdfmetrics.registerFont(TTFont('ThaiFont', 'THSarabunNew.ttf'))
-        pdfmetrics.registerFont(TTFont('ThaiFontBold', 'THSarabunNew Bold.ttf'))
+        pdfmetrics.registerFont(TTFont('ThaiFont', 'thsarabunnew.ttf'))
+        pdfmetrics.registerFont(TTFont('ThaiFontBold', 'thsarabunnew_bold.ttf'))
         return "ThaiFont", "ThaiFontBold"
     except:
         return "Helvetica", "Helvetica-Bold"
 
-FONT_REG, FONT_BOLD = init_fonts()
+F_REG, F_BOLD = init_fonts()
 
-# --- 2. ฟังก์ชันสร้าง PDF ตามตัวอย่าง ---
-def generate_custom_pdf(df, center_name, uploaded_imgs):
+# --- 2. ฟังก์ชันสร้าง PDF ให้เหมือนต้นฉบับเป๊ะ ---
+def generate_exact_pdf(df, center_name, uploaded_imgs):
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40)
+    doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=50, leftMargin=50, topMargin=50, bottomMargin=50)
     styles = getSampleStyleSheet()
     
-    # สร้าง Styles ภาษาไทย
-    style_header = ParagraphStyle('Header', fontName=FONT_BOLD, fontSize=18, alignment=1, leading=22)
-    style_normal = ParagraphStyle('Normal', fontName=FONT_REG, fontSize=14, leading=18)
-    style_table = ParagraphStyle('TableText', fontName=FONT_REG, fontSize=12, alignment=1)
-
+    st_title = ParagraphStyle('T', fontName=F_BOLD, fontSize=16, leading=20)
+    st_normal = ParagraphStyle('N', fontName=F_REG, fontSize=14, leading=16)
+    st_bold = ParagraphStyle('B', fontName=F_BOLD, fontSize=14, leading=16)
+    
     story = []
-
-    # --- หน้า 1: ตารางสรุป ---
-    story.append(Paragraph("รายงานเวลาปฏิบัติงาน USO1-Renew", style_header))
-    story.append(Paragraph(f"ศูนย์ : {center_name}", style_header))
-    story.append(Paragraph("เดือน : มีนาคม 2569", style_header)) # ปรับตามต้องการ
+    # หน้า 1: ตารางสรุป
+    story.append(Paragraph("รายงานเวลาปฏิบัติงาน USO1-Renew", st_title))
+    story.append(Paragraph(f"ศูนย์ : {center_name}", st_normal))
+    staff_name = df.iloc[0]['name'] if not df.empty else "-"
+    story.append(Paragraph(f"เจ้าหน้าที่ดูแลประจำศูนย์ : {staff_name}", st_normal))
     story.append(Spacer(1, 20))
 
-    # เตรียมข้อมูลตาราง
     table_data = [["ลำดับ", "วันที่", "ชื่อ - นามสกุล", "เวลาเข้า", "เวลาออก", "ตำแหน่ง", "หมายเหตุ"]]
     for i, row in df.iterrows():
         table_data.append([str(i+1), row['date'], row['name'], row['time_in'], row['time_out'], row['status'], ""])
 
-    # ตั้งค่าความกว้างคอลัมน์
-    t = Table(table_data, colWidths=[30, 80, 130, 50, 50, 100, 70])
+    t = Table(table_data, colWidths=[35, 85, 120, 50, 50, 90, 60])
     t.setStyle(TableStyle([
-        ('FONTNAME', (0,0), (-1,-1), FONT_REG),
-        ('FONTNAME', (0,0), (-1,0), FONT_BOLD),
+        ('FONTNAME', (0,0), (-1,-1), F_REG),
         ('GRID', (0,0), (-1,-1), 0.5, colors.black),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
+        ('FONTSIZE', (0,0), (-1,-1), 11),
     ]))
     story.append(t)
     story.append(PageBreak())
 
-    # --- หน้าถัดไป: รูปภาพรายวัน ---
+    # หน้า 2 เป็นต้นไป: รูปภาพ (2 รูปต่อหน้า)
     for i, row in df.iterrows():
-        story.append(Paragraph(f"วันที่ : {row['date']}", style_normal))
-        story.append(Paragraph(f"ชื่อ : {row['name']}  ตำแหน่ง : {row['status']}", style_normal))
-        story.append(Spacer(1, 10))
+        story.append(Paragraph(f"วันที่ : {row['date']}", st_bold))
+        story.append(Paragraph(f"ชื่อ : {row['name']}  ตำแหน่ง : {row['status']}", st_normal))
+        story.append(Spacer(1, 15))
 
-        # ตารางใส่รูป (2 รูปซ้ายขวา หรือ บนล่าง ตามต้องการ)
-        # ในที่นี้ใส่รูปใหญ่ตามลำดับ
-        img_key_in = f"img_in_{i}"
-        img_key_out = f"img_out_{i}"
+        # ตรวจสอบรูปภาพ (รูปใหม่จาก Upload หรือ รูปเดิมจาก Folder)
+        for label, col_name, upload_key in [("เวลาเข้า (เช้า)", "img_in1", f"in_{i}"), ("เวลาออก (เย็น)", "img_out1", f"out_{i}")]:
+            img_to_use = None
+            # 1. เช็คว่ามีการอัปโหลดใหม่ไหม
+            if upload_key in uploaded_imgs and uploaded_imgs[upload_key] is not None:
+                img_to_use = uploaded_imgs[upload_key]
+            # 2. ถ้าไม่มี ให้อ่านจากโฟลเดอร์ photos/ ตามชื่อใน CSV
+            else:
+                photo_path = f"photos/{row[col_name]}"
+                if os.path.exists(photo_path):
+                    img_to_use = photo_path
 
-        for key, label in [(img_key_in, "เวลาเข้า"), (img_key_out, "เวลาออก")]:
-            if key in uploaded_imgs and uploaded_imgs[key] is not None:
-                img = Image.open(uploaded_imgs[key])
-                # จัดการขนาดรูปให้พอดีหน้า PDF
+            if img_to_use:
+                img = Image.open(img_to_use)
                 w, h = img.size
                 aspect = h / float(w)
-                story.append(RLImage(uploaded_imgs[key], width=350, height=350*aspect))
-                story.append(Paragraph(f"{label} : {row['time_in'] if 'in' in label else row['time_out']}", style_normal))
-                story.append(Spacer(1, 15))
+                story.append(RLImage(img_to_use, width=320, height=320*aspect))
+                story.append(Spacer(1, 5))
+                story.append(Paragraph(f"{label} : {row['time_in'] if 'เข้า' in label else row['time_out']}", st_normal))
+                story.append(Spacer(1, 20))
         
         story.append(PageBreak())
 
     doc.build(story)
     return buffer.getvalue()
 
-# --- 3. ส่วน UI ของหน้าเว็บ ---
-st.set_page_config(page_title="USO1 Report Editor", layout="wide")
-st.markdown("""<style> .main { background-color: #f5f7f9; } </style>""", unsafe_allow_html=True)
-
-st.title("📄 USO1 Report Management System")
+# --- 3. หน้า UI ---
+st.set_page_config(page_title="USO1 Master System", layout="wide")
+st.title("🚀 ระบบตรวจและแก้ไขรายงาน USO1")
 
 if 'df' not in st.session_state:
     st.session_state.df = pd.read_csv("03-2026.csv")
 
-# แถบควบคุมด้านข้าง
-st.sidebar.header("เมนูตั้งค่า")
 centers = st.session_state.df['file_name'].unique()
-target_center = st.sidebar.selectbox("เลือกศูนย์ที่ต้องการตรวจ", centers)
+target = st.sidebar.selectbox("เลือกศูนย์", centers)
+current_df = st.session_state.df[st.session_state.df['file_name'] == target].copy()
 
-# กรองข้อมูลศูนย์ที่เลือก
-current_df = st.session_state.df[st.session_state.df['file_name'] == target_center].copy()
+# ส่วนการตรวจและอัปโหลด
+st.subheader(f"📍 ศูนย์: {target}")
+edited_df = st.data_editor(current_df, use_container_width=True)
 
-# แบ่ง Tab การทำงาน
-tab1, tab2 = st.tabs(["📝 แก้ไขข้อมูลตาราง", "📸 อัปโหลดรูปภาพ"])
+uploaded_files = {}
+st.write("---")
+st.subheader("🖼️ ตรวจสอบและแก้ไขรูปภาพ")
 
-uploaded_images = {}
+cols = st.columns(3)
+for idx, row in edited_df.iterrows():
+    with st.expander(f"📅 วันที่ {row['date']} - {row['name']}"):
+        c1, c2 = st.columns(2)
+        
+        # แสดงรูปเดิม (ถ้ามี)
+        for i, (col_img, label, key) in enumerate([("img_in1", "รูปเช้า", "in"), ("img_out1", "รูปเย็น", "out")]):
+            target_col = c1 if i == 0 else c2
+            photo_path = f"photos/{row[col_img]}"
+            
+            if os.path.exists(photo_path):
+                target_col.image(photo_path, caption=f"รูปเดิม: {label}", width=200)
+            else:
+                target_col.warning(f"ไม่พบรูปเดิม: {label}")
+            
+            # ช่องอัปโหลดรูปใหม่เพื่อแทนที่
+            uploaded_files[f"{key}_{idx}"] = target_col.file_uploader(f"อัปโหลด{label}ใหม่", type=['jpg','png'], key=f"{key}_{idx}")
 
-with tab1:
-    st.info("คุณสามารถแก้ไข วันที่, ชื่อ, และเวลา ได้โดยการคลิกที่ช่องในตารางด้านล่าง")
-    edited_df = st.data_editor(current_df, use_container_width=True, num_rows="dynamic")
-    if st.button("💾 บันทึกการแก้ไขตาราง"):
-        st.session_state.df.update(edited_df)
-        st.success("บันทึกข้อมูลเรียบร้อยแล้ว!")
-
-with tab2:
-    st.warning("กรุณาอัปโหลดรูปภาพแยกตามรายวัน (รูปจะถูกนำไปใส่ใน PDF ตามลำดับวันที่)")
-    cols = st.columns(2)
-    for idx, row in edited_df.iterrows():
-        with st.expander(f"📅 ข้อมูลวันที่ {row['date']}"):
-            c1, c2 = st.columns(2)
-            uploaded_images[f"img_in_{idx}"] = c1.file_uploader(f"รูปเวลาเข้า ({row['date']})", type=['jpg','png'], key=f"in_{idx}")
-            uploaded_images[f"img_out_{idx}"] = c2.file_uploader(f"รูปเวลาออก ({row['date']})", type=['jpg','png'], key=f"out_{idx}")
-
-# ปุ่มสร้าง PDF (แสดงตลอด)
-st.divider()
-if st.button("🚀 สร้างไฟล์ PDF และดาวน์โหลด (Final Report)", use_container_width=True):
-    with st.spinner("กำลังจัดหน้า PDF..."):
-        pdf_data = generate_custom_pdf(edited_df, target_center, uploaded_images)
-        st.download_button(
-            label="📥 ดาวน์โหลดไฟล์ PDF ของ " + target_center,
-            data=pdf_data,
-            file_name=f"{target_center}.pdf",
-            mime="application/pdf"
-        )
+if st.button("🖨️ Export PDF (Final)", use_container_width=True):
+    pdf_out = generate_exact_pdf(edited_df, target, uploaded_files)
+    st.download_button(f"📥 ดาวน์โหลด PDF: {target}", pdf_out, f"{target}.pdf", "application/pdf")
