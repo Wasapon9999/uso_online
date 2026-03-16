@@ -15,7 +15,7 @@ from PIL import Image
 def init_fonts():
     # ตรวจสอบว่าไฟล์ฟอนต์มีอยู่ในระบบจริงไหม
     reg_font_path = 'THSarabunNew.ttf'
-    bold_font_path = 'THSarabunNew bold.ttf'
+    bold_font_path = 'THSarabunNew Bold.ttf'
     
     if os.path.exists(reg_font_path) and os.path.exists(bold_font_path):
         try:
